@@ -1,0 +1,46 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:myfinance;MODE=PostgreSQL;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    database-platform: org.hibernate.dialect.H2Dialect
+    open-in-view: false
+  flyway:
+    enabled: false
+  servlet:
+    multipart:
+      max-file-size: 20MB
+      max-request-size: 25MB
+
+app:
+  jwt:
+    secret: test-secret-key-that-is-long-enough-for-hs256-signing-1234567890
+    issuer: my-finance-manager-test
+    access-token-ttl: PT15M
+    refresh-token-ttl: P30D
+  google:
+    client-id:
+  openrouter:
+    api-key:
+    base-url: https://openrouter.ai/api/v1
+    model: test/model
+    timeout: PT5S
+  rapidapi:
+    api-key:
+    host:
+    url:
+    file-field-name: file
+    timeout: PT5S
+  storage:
+    location: ./target/test-uploads
+  cors:
+    allowed-origins: "*"
+
+management:
+  health:
+    db:
+      enabled: false

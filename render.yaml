@@ -1,0 +1,80 @@
+# Render Blueprint for My Finance Manager backend
+# https://render.com/docs/blueprint-spec
+#
+# Deploys:
+#   1. A managed PostgreSQL database (Render Postgres, exposed to the app as DATABASE_URL)
+#   2. The Spring Boot REST API as a Docker web service
+#
+# Secrets marked `sync: false` must be filled in from the Render dashboard after the
+# blueprint is first applied. Never commit real secret values to this file.
+
+databases:
+  - name: my-finance-manager-db
+    databaseName: myfinance
+    user: myfinance
+    plan: free
+    region: oregon
+    postgresMajorVersion: "16"
+
+services:
+  - type: web
+    name: my-finance-manager-backend
+    runtime: docker
+    plan: free
+    region: oregon
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /actuator/health
+    autoDeploy: true
+    # Free plan instances spin down when idle and wake on the next request.
+    # Switch to a paid plan for an always-on production deployment.
+    envVars:
+      - key: SPRING_PROFILES_ACTIVE
+        value: prod
+
+      # Render injects the full connection string (postgresql://user:pass@host/db).
+      # The backend normalizes it into a JDBC URL at startup.
+      - key: DATABASE_URL
+        fromDatabase:
+          name: my-finance-manager-db
+          property: connectionString
+      - key: DB_POOL_SIZE
+        value: "10"
+
+      # Render generates a strong secret automatically.
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_ISSUER
+        value: my-finance-manager
+      - key: JWT_ACCESS_TTL
+        value: PT15M
+      - key: JWT_REFRESH_TTL
+        value: P30D
+
+      # Google Sign-In (optional). Value is the OAuth Web client ID used to
+      # verify Android ID tokens. Leave unset to disable the endpoint.
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+
+      # OpenRouter is used for AI insights and as the statement-parsing fallback.
+      # OPENROUTER_MODEL is intentionally an env var so the model can be swapped
+      # per environment without a code deployment.
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: OPENROUTER_BASE_URL
+        value: https://openrouter.ai/api/v1
+      - key: OPENROUTER_MODEL
+        value: openai/gpt-4o-mini
+
+      # Rapid Bank Statement Parsing API (RapidAPI) - primary statement parser.
+      # Leave unset to fall back directly to the OpenRouter extraction path.
+      - key: RAPIDAPI_KEY
+        sync: false
+      - key: RAPIDAPI_HOST
+        sync: false
+      - key: RAPIDAPI_URL
+        sync: false
+
+      # Comma-separated list of allowed browser origins, or "*" to allow all.
+      - key: CORS_ALLOWED_ORIGINS
+        value: "*"

@@ -1,0 +1,28 @@
+# Build output
+target/
+out/
+build/
+
+# Runtime data
+data/
+uploads/
+*.log
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# IDE
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+.settings/
+.classpath
+.project
+
+# OS
+.DS_Store
+Thumbs.db
