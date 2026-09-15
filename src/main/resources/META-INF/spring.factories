@@ -1,1 +1,3 @@
-org.springframework.boot.env.EnvironmentPostProcessor=com.myfinancemanager.config.DatabaseUrlEnvironmentPostProcessor
+org.springframework.boot.env.EnvironmentPostProcessor=\
+  com.myfinancemanager.config.DotenvEnvironmentPostProcessor,\
+  com.myfinancemanager.config.DatabaseUrlEnvironmentPostProcessor

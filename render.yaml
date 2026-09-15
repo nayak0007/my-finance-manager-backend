@@ -2,19 +2,15 @@
 # https://render.com/docs/blueprint-spec
 #
 # Deploys:
-#   1. A managed PostgreSQL database (Render Postgres, exposed to the app as DATABASE_URL)
-#   2. The Spring Boot REST API as a Docker web service
+#   The Spring Boot REST API as a Docker web service.
+#
+# The database is NOT provisioned by this blueprint. Bring your own PostgreSQL
+# instance (Render Postgres, Neon, Supabase, RDS, ...) and fill in DATABASE_URL
+# from the Render dashboard when the blueprint is applied. Render prompts for
+# every value marked `sync: false` during deployment.
 #
 # Secrets marked `sync: false` must be filled in from the Render dashboard after the
 # blueprint is first applied. Never commit real secret values to this file.
-
-databases:
-  - name: my-finance-manager-db
-    databaseName: myfinance
-    user: myfinance
-    plan: free
-    region: oregon
-    postgresMajorVersion: "16"
 
 services:
   - type: web
@@ -32,12 +28,20 @@ services:
       - key: SPRING_PROFILES_ACTIVE
         value: prod
 
-      # Render injects the full connection string (postgresql://user:pass@host/db).
-      # The backend normalizes it into a JDBC URL at startup.
+      # Bring your own database. Paste the connection string in the Render
+      # dashboard when this blueprint is applied. Accepted formats:
+      #   postgresql://user:password@host:5432/dbname   (credentials embedded)
+      #   postgres://user:password@host:5432/dbname     (credentials embedded)
+      #   jdbc:postgresql://host:5432/dbname            (also set SPRING_DATASOURCE_USERNAME/PASSWORD)
+      # The backend normalizes the platform-style URLs into a JDBC URL at startup.
       - key: DATABASE_URL
-        fromDatabase:
-          name: my-finance-manager-db
-          property: connectionString
+        sync: false
+
+      # Optional: appended to the JDBC URL as sslmode=... (e.g. `require` for Neon).
+      # Leave blank if your connection string already contains sslmode.
+      - key: DATABASE_SSL_MODE
+        sync: false
+
       - key: DB_POOL_SIZE
         value: "10"
 

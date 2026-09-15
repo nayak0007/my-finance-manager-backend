@@ -2,7 +2,10 @@ package com.myfinancemanager.config;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.SpringApplication;
+import org.springframework.core.env.MapPropertySource;
 import org.springframework.mock.env.MockEnvironment;
+
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -54,6 +57,40 @@ class DatabaseUrlEnvironmentPostProcessorTest {
         MockEnvironment environment = new MockEnvironment()
                 .withProperty("DATABASE_URL", "postgresql://user:pw@host/db")
                 .withProperty("spring.datasource.url", "jdbc:postgresql://explicit-host/db");
+
+        processor.postProcessEnvironment(environment, new SpringApplication());
+
+        assertThat(environment.getProperty("spring.datasource.url"))
+                .isEqualTo("jdbc:postgresql://explicit-host/db");
+    }
+
+    @Test
+    void normalizesDatabaseUrlEvenWhenYmlPlaceholderDefaultIsPresent() {
+        MockEnvironment environment = new MockEnvironment()
+                .withProperty("DATABASE_URL", "postgresql://user:pw@remote-host:5432/myfinance");
+        // Mirrors application.yml: a placeholder WITH a default, which used to block the
+        // normalizer because spring.datasource.url always resolved to non-null.
+        environment.getPropertySources().addFirst(new MapPropertySource("applicationConfig",
+                Map.of("spring.datasource.url",
+                        "${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/myfinance}")));
+
+        processor.postProcessEnvironment(environment, new SpringApplication());
+
+        assertThat(environment.getProperty("spring.datasource.url"))
+                .isEqualTo("jdbc:postgresql://remote-host:5432/myfinance");
+        assertThat(environment.getProperty("spring.datasource.username")).isEqualTo("user");
+        assertThat(environment.getProperty("spring.datasource.password")).isEqualTo("pw");
+    }
+
+    @Test
+    void explicitSpringDatasourceUrlVariableTakesPrecedenceOverDatabaseUrl() {
+        MockEnvironment environment = new MockEnvironment()
+                .withProperty("DATABASE_URL", "postgresql://user:pw@host/db")
+                .withProperty("SPRING_DATASOURCE_URL", "jdbc:postgresql://explicit-host/db");
+        // Mirrors application.yml so the placeholder can resolve SPRING_DATASOURCE_URL.
+        environment.getPropertySources().addFirst(new MapPropertySource("applicationConfig",
+                Map.of("spring.datasource.url",
+                        "${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/myfinance}")));
 
         processor.postProcessEnvironment(environment, new SpringApplication());
 

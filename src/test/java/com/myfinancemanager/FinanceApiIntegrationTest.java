@@ -16,7 +16,16 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@SpringBootTest
+@SpringBootTest(properties = {
+        // Pinned so OS-level SPRING_DATASOURCE_* / DATABASE_* variables exported in a
+        // developer shell or CI cannot leak into this test context (they outrank
+        // application-test.yml in Spring's property precedence; inlined test
+        // properties do not).
+        "spring.datasource.url=jdbc:h2:mem:myfinance;MODE=PostgreSQL;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE",
+        "spring.datasource.driver-class-name=org.h2.Driver",
+        "spring.datasource.username=sa",
+        "spring.datasource.password="
+})
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
 class FinanceApiIntegrationTest {

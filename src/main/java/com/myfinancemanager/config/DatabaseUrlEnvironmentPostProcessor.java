@@ -4,6 +4,7 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.env.EnvironmentPostProcessor;
 import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.MapPropertySource;
+import org.springframework.core.env.PropertySource;
 
 import java.net.URI;
 import java.net.URLDecoder;
@@ -15,6 +16,13 @@ import java.util.Map;
  * Normalizes the {@code DATABASE_URL} connection string (as provided by Render and other
  * platforms) into the standard Spring datasource properties. Accepted formats:
  * {@code postgres://}, {@code postgresql://} and {@code jdbc:postgresql://}.
+ *
+ * <p>The processor is skipped only when the datasource URL was configured explicitly
+ * (a real {@code SPRING_DATASOURCE_URL} value or a literal {@code spring.datasource.url}
+ * entry in a config file). A placeholder default in application.yml &mdash;
+ * {@code ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/myfinance}} &mdash; does
+ * <em>not</em> count as explicit configuration, otherwise {@code DATABASE_URL} could never
+ * override the built-in fallback.</p>
  */
 public class DatabaseUrlEnvironmentPostProcessor implements EnvironmentPostProcessor {
 
@@ -26,7 +34,7 @@ public class DatabaseUrlEnvironmentPostProcessor implements EnvironmentPostProce
         if (databaseUrl == null || databaseUrl.isBlank()) {
             return;
         }
-        if (environment.getProperty("spring.datasource.url") != null) {
+        if (explicitDatasourceUrlConfigured(environment)) {
             return;
         }
 
@@ -61,6 +69,28 @@ public class DatabaseUrlEnvironmentPostProcessor implements EnvironmentPostProce
         } catch (RuntimeException ex) {
             throw new IllegalStateException("Unable to parse DATABASE_URL into JDBC properties", ex);
         }
+    }
+
+    /**
+     * Whether a datasource URL was deliberately configured. A placeholder with a default in a
+     * config file (e.g. {@code ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/myfinance}})
+     * is not deliberate configuration: the normalizer must still run so that {@code DATABASE_URL}
+     * can override the built-in fallback.
+     */
+    private boolean explicitDatasourceUrlConfigured(ConfigurableEnvironment environment) {
+        String springDatasourceUrl = environment.getProperty("SPRING_DATASOURCE_URL");
+        if (springDatasourceUrl != null && !springDatasourceUrl.isBlank()) {
+            return true;
+        }
+        for (PropertySource<?> source : environment.getPropertySources()) {
+            if (source.containsProperty("spring.datasource.url")) {
+                Object raw = source.getProperty("spring.datasource.url");
+                if (raw != null && !raw.toString().contains("${")) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private String appendSslMode(String jdbcUrl, String sslMode) {
