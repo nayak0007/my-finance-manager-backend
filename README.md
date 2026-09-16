@@ -209,6 +209,19 @@ call. Duplicate rows already present in the ledger are flagged before commit.
 | DELETE | `/{id}` | Delete an item |
 | GET/PUT | `/settings` | Sender allow/block lists and enablement flags |
 
+### Budgets - `/budgets`
+| Method | Path | Description |
+|---|---|---|
+| GET | `/` | List the user's category budgets |
+| PUT | `/{category}` | Create or update the monthly limit for a category |
+| DELETE | `/{category}` | Remove a category's budget |
+
+The category is the natural key: a user has at most one budget per category, enforced by a
+unique `(user_id, category)` constraint. That is what makes `PUT` idempotent, so a client
+replaying the same change edits the limit instead of adding a second budget. Categories are
+normalised to upper case; `DELETE` on a category without a budget answers `204` rather than
+`404` for the same reason. `monthlyLimit` must be greater than zero.
+
 ### AI Insights - `/insights`
 | Method | Path | Description |
 |---|---|---|
@@ -266,5 +279,6 @@ docker run -p 8080:8080 \
 ## 8. Database migrations
 
 Flyway runs automatically on startup using `src/main/resources/db/migration`. The initial
-migration (`V1__init.sql`) creates all tables and indexes. Add new migrations as
+migration (`V1__init.sql`) creates all tables and indexes, and `V2__budgets.sql` adds category
+budgets. Add new migrations as
 `V<n>__<description>.sql`; never edit an already-applied migration.

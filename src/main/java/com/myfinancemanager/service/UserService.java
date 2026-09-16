@@ -12,6 +12,7 @@ import com.myfinancemanager.dto.user.UpdateProfileRequest;
 import com.myfinancemanager.dto.user.UserResponse;
 import com.myfinancemanager.repository.AIInsightRepository;
 import com.myfinancemanager.repository.AutoCaptureQueueRepository;
+import com.myfinancemanager.repository.BudgetRepository;
 import com.myfinancemanager.repository.AutoCaptureSettingsRepository;
 import com.myfinancemanager.repository.ExpenseRepository;
 import com.myfinancemanager.repository.ImportBatchRepository;
@@ -45,6 +46,7 @@ public class UserService {
     private final AutoCaptureQueueRepository autoCaptureQueueRepository;
     private final AutoCaptureSettingsRepository autoCaptureSettingsRepository;
     private final AIInsightRepository aiInsightRepository;
+    private final BudgetRepository budgetRepository;
 
     @Transactional(readOnly = true)
     public User getEntity(UUID userId) {
@@ -119,6 +121,7 @@ public class UserService {
         autoCaptureSettingsRepository.findByUserId(userId).ifPresent(autoCaptureSettingsRepository::delete);
         autoCaptureQueueRepository.deleteAll(autoCaptureQueueRepository.findByUserId(userId));
         aiInsightRepository.deleteAll(aiInsightRepository.findByUserId(userId));
+        budgetRepository.deleteAll(budgetRepository.findByUserIdOrderByCategoryAsc(userId));
         importBatchRepository.deleteAll(importBatchRepository.findByUserId(userId));
         incomeRepository.deleteAll(incomeRepository.findAll(ownedBy(userId)));
         expenseRepository.deleteAll(expenseRepository.findAll(ownedBy(userId)));

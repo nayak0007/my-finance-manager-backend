@@ -11,8 +11,10 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -91,12 +93,94 @@ class FinanceApiIntegrationTest {
     }
 
     @Test
+    void budgetUpsertIsIdempotentAndScopedToTheUser() throws Exception {
+        String token = register("budget.owner+" + System.nanoTime() + "@example.com");
+
+        mockMvc.perform(put("/api/v1/budgets/food")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"monthlyLimit\":8000}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.category").value("FOOD"))
+                .andExpect(jsonPath("$.monthlyLimit").value(8000));
+
+        // Same category again: the limit moves, it does not add a second budget.
+        mockMvc.perform(put("/api/v1/budgets/FOOD")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"monthlyLimit\":9500}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.monthlyLimit").value(9500));
+
+        mockMvc.perform(get("/api/v1/budgets").header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].category").value("FOOD"))
+                .andExpect(jsonPath("$[0].monthlyLimit").value(9500));
+
+        // A second account must not see the first account's budget.
+        String otherToken = register("budget.other+" + System.nanoTime() + "@example.com");
+        mockMvc.perform(get("/api/v1/budgets").header("Authorization", "Bearer " + otherToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(0));
+
+        mockMvc.perform(delete("/api/v1/budgets/FOOD").header("Authorization", "Bearer " + token))
+                .andExpect(status().isNoContent());
+
+        // Replaying a delete for a category with no budget is a no-op, not a 404, so a client that
+        // retries a change it already applied does not get stuck.
+        mockMvc.perform(delete("/api/v1/budgets/FOOD").header("Authorization", "Bearer " + token))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(get("/api/v1/budgets").header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(0));
+    }
+
+    @Test
+    void budgetWithoutAPositiveLimitIsRejected() throws Exception {
+        String token = register("budget.invalid+" + System.nanoTime() + "@example.com");
+
+        mockMvc.perform(put("/api/v1/budgets/travel")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"monthlyLimit\":0}"))
+                .andExpect(status().isBadRequest());
+
+        mockMvc.perform(put("/api/v1/budgets/travel")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
     void protectedEndpointsRequireAuthentication() throws Exception {
         mockMvc.perform(get("/api/v1/expenses"))
                 .andExpect(status().isUnauthorized());
 
         mockMvc.perform(get("/api/v1/insights"))
                 .andExpect(status().isUnauthorized());
+
+        mockMvc.perform(get("/api/v1/budgets"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    /** Registers a fresh account and returns its access token. */
+    private String register(String email) throws Exception {
+        String registerBody = objectMapper.writeValueAsString(new java.util.LinkedHashMap<>() {{
+            put("email", email);
+            put("password", "Password123");
+            put("fullName", "Budget Tester");
+        }});
+
+        String response = mockMvc.perform(post("/api/v1/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(registerBody))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+
+        return objectMapper.readTree(response).get("accessToken").asText();
     }
 
     @Test
