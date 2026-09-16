@@ -2,23 +2,41 @@ package com.myfinancemanager.integration.rapidapi;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.myfinancemanager.common.exception.ExternalServiceException;
 import com.myfinancemanager.config.RapidApiProperties;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.core.io.FileSystemResource;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
-import org.springframework.util.LinkedMultiValueMap;
-import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestClient;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Base64;
 
 /**
  * Client for the Rapid Bank Statement Parsing API (RapidAPI), the primary extraction
- * engine for uploaded statements. The response shape varies between providers, so the
- * transaction array is located defensively by {@link StatementResponseMapper}.
+ * engine for uploaded statements.
+ *
+ * <p>Verified request contract of the {@code /processDocument} endpoint (a multipart
+ * body is rejected with "No body provided"): a JSON object carrying the statement as
+ * base64 plus an {@code extractionDetails} block that names the fields to extract,
+ * for example:
+ * <pre>{@code
+ * {
+ *   "file": "<base64>",
+ *   "extractionDetails": {
+ *     "name": "transactions",
+ *     "language": "English",
+ *     "fields": [{ "key": "transactions", "description": "..." }]
+ *   }
+ * }}</pre>
+ *
+ * <p>The response is {@code {"transactions": "<text blob>"}} — the extracted rows as one
+ * text block, not a JSON array — so {@link StatementResponseMapper#mapTextResponse} does
+ * the interpretation. The provider accepts PDF documents; CSV/XLSX uploads fail here and
+ * fall through to the OpenRouter extraction path in {@code StatementParserService}.
  */
 @Slf4j
 @Component
@@ -46,22 +64,33 @@ public class RapidApiClient {
             throw new ExternalServiceException("Primary statement parsing API is not configured");
         }
         try {
-            MultiValueMap<String, Object> parts = new LinkedMultiValueMap<>();
-            parts.add(properties.fileFieldName(), new FileSystemResource(file));
+            String base64 = Base64.getEncoder().encodeToString(Files.readAllBytes(file));
+            ObjectNode payload = objectMapper.createObjectNode();
+            payload.put("file", base64);
+            ObjectNode details = payload.putObject("extractionDetails");
+            details.put("name", "transactions");
+            details.put("language", "English");
+            ObjectNode field = details.putArray("fields").addObject();
+            field.put("key", "transactions");
+            field.put("description",
+                    "all bank transactions with date, description, and debit or credit amount");
 
-            String rawResponse = restClient.post()
+            RestClient.RequestBodySpec request = restClient.post()
                     .uri(properties.url())
-                    .contentType(MediaType.MULTIPART_FORM_DATA)
-                    .header("X-RapidAPI-Key", properties.apiKey())
-                    .header("X-RapidAPI-Host", properties.host())
-                    .body(parts)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .header("X-RapidAPI-Key", properties.apiKey());
+            if (properties.host() != null && !properties.host().isBlank()) {
+                request = request.header("X-RapidAPI-Host", properties.host());
+            }
+            String rawResponse = request
+                    .body(payload)
                     .retrieve()
                     .body(String.class);
 
             if (rawResponse == null || rawResponse.isBlank()) {
                 throw new ExternalServiceException("Primary statement parsing API returned an empty response");
             }
-            return StatementResponseMapper.findTransactionArray(objectMapper.readTree(rawResponse));
+            return objectMapper.readTree(rawResponse);
         } catch (ExternalServiceException ex) {
             throw ex;
         } catch (Exception ex) {

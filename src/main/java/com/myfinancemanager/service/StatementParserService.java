@@ -40,8 +40,17 @@ public class StatementParserService {
     public ParseResult parse(Path file, String originalFilename, String contentType) {
         if (rapidApiClient.isConfigured()) {
             try {
-                JsonNode array = rapidApiClient.parseStatement(file, originalFilename, contentType);
-                List<ParsedTransaction> transactions = mapArray(array);
+                JsonNode root = rapidApiClient.parseStatement(file, originalFilename, contentType);
+                // The provider returns the rows as one text block ({"transactions": "..."});
+                // a structured array is the secondary interpretation for other shapes.
+                List<ParsedTransaction> transactions = StatementResponseMapper.mapTextResponse(root);
+                if (transactions.isEmpty() && root != null) {
+                    try {
+                        transactions = mapArray(StatementResponseMapper.findTransactionArray(root));
+                    } catch (IllegalArgumentException ignored) {
+                        // No transaction array in the response either; fall through to OpenRouter.
+                    }
+                }
                 if (!transactions.isEmpty()) {
                     return new ParseResult(ExtractionMethod.RAPID_API, transactions);
                 }
