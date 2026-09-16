@@ -4,8 +4,6 @@ import com.myfinancemanager.domain.converter.JsonMapConverter;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
-import jakarta.persistence.EnumType;
-import jakarta.persistence.Enumerated;
 import jakarta.persistence.Table;
 import lombok.Getter;
 import lombok.Setter;
@@ -23,18 +21,15 @@ public class User extends BaseEntity {
     @Column(name = "email", nullable = false, unique = true, length = 320)
     private String email;
 
-    @Column(name = "password_hash")
-    private String passwordHash;
-
     @Column(name = "full_name", length = 200)
     private String fullName;
 
-    @Enumerated(EnumType.STRING)
-    @Column(name = "auth_provider", nullable = false, length = 20)
-    private AuthProvider authProvider = AuthProvider.LOCAL;
-
-    @Column(name = "provider_subject", length = 255)
-    private String providerSubject;
+    /**
+     * The Neon Auth subject ({@code neon_auth.user.id}) this account signs in as. Credentials
+     * are never stored here - Neon Auth owns them.
+     */
+    @Column(name = "auth_subject", length = 255)
+    private String authSubject;
 
     @Column(name = "currency", nullable = false, length = 3)
     private String currency = "INR";

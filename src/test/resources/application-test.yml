@@ -17,13 +17,12 @@ spring:
       max-request-size: 25MB
 
 app:
-  jwt:
-    secret: test-secret-key-that-is-long-enough-for-hs256-signing-1234567890
-    issuer: my-finance-manager-test
-    access-token-ttl: PT15M
-    refresh-token-ttl: P30D
-  google:
-    client-id:
+  auth:
+    neon:
+      # Overridden per test class: the integration test points this at a local JWKS endpoint
+      # (see NeonAuthTestSupport). This value is only a fallback so the context can start; the
+      # issuer and jwks-uri are derived from it.
+      base-url: https://test-auth.invalid/testdb/auth
   openrouter:
     api-key:
     base-url: https://openrouter.ai/api/v1
@@ -44,3 +43,8 @@ management:
   health:
     db:
       enabled: false
+
+logging:
+  level:
+    # Surfaces why a token was rejected when an auth test fails.
+    com.myfinancemanager.security: DEBUG

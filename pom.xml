@@ -19,11 +19,10 @@
 
     <properties>
         <java.version>21</java.version>
-        <jjwt.version>0.12.6</jjwt.version>
         <pdfbox.version>3.0.3</pdfbox.version>
         <poi.version>5.3.0</poi.version>
         <commons-csv.version>1.12.0</commons-csv.version>
-        <google-api-client.version>2.7.0</google-api-client.version>
+        <tink.version>1.15.0</tink.version>
         <springdoc.version>2.6.0</springdoc.version>
     </properties>
 
@@ -39,6 +38,25 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-security</artifactId>
+        </dependency>
+
+        <!-- Verifies Neon Auth's EdDSA (Ed25519) JWTs against its published JWK set. -->
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-oauth2-jose</artifactId>
+        </dependency>
+
+        <!--
+            Required by Nimbus for Ed25519. nimbus-jose-jwt routes EdDSA straight through to
+            com.google.crypto.tink.subtle.Ed25519Sign/Ed25519Verify rather than the JDK's own
+            Ed25519 support, so without this on the classpath every Neon Auth token fails with a
+            NoClassDefFoundError at request time. It is not optional in practice, despite
+            Nimbus declaring it as such.
+        -->
+        <dependency>
+            <groupId>com.google.crypto.tink</groupId>
+            <artifactId>tink</artifactId>
+            <version>${tink.version}</version>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -62,32 +80,6 @@
         <dependency>
             <groupId>org.flywaydb</groupId>
             <artifactId>flyway-database-postgresql</artifactId>
-        </dependency>
-
-        <!-- JWT -->
-        <dependency>
-            <groupId>io.jsonwebtoken</groupId>
-            <artifactId>jjwt-api</artifactId>
-            <version>${jjwt.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>io.jsonwebtoken</groupId>
-            <artifactId>jjwt-impl</artifactId>
-            <version>${jjwt.version}</version>
-            <scope>runtime</scope>
-        </dependency>
-        <dependency>
-            <groupId>io.jsonwebtoken</groupId>
-            <artifactId>jjwt-jackson</artifactId>
-            <version>${jjwt.version}</version>
-            <scope>runtime</scope>
-        </dependency>
-
-        <!-- Google ID token verification -->
-        <dependency>
-            <groupId>com.google.api-client</groupId>
-            <artifactId>google-api-client</artifactId>
-            <version>${google-api-client.version}</version>
         </dependency>
 
         <!-- Statement text extraction -->

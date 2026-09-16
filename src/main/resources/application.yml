@@ -32,13 +32,15 @@ spring:
       write-dates-as-timestamps: false
 
 app:
-  jwt:
-    secret: ${JWT_SECRET:development-only-secret-key-please-override-in-production-1234567890}
-    issuer: ${JWT_ISSUER:my-finance-manager}
-    access-token-ttl: ${JWT_ACCESS_TTL:PT15M}
-    refresh-token-ttl: ${JWT_REFRESH_TTL:P30D}
-  google:
-    client-id: ${GOOGLE_CLIENT_ID:}
+  auth:
+    neon:
+      # Neon Auth (Managed Better Auth) owns credentials; this service only verifies its tokens.
+      # Shape: https://<endpoint>.neonauth.<region>.aws.neon.tech/<database>/auth
+      base-url: ${NEON_AUTH_URL:}
+      # Derived from base-url when left blank. Set them only when the auth service is reached
+      # through a different hostname than the one its iss/aud claims name.
+      issuer: ${NEON_AUTH_ISSUER:}
+      jwks-uri: ${NEON_AUTH_JWKS_URI:}
   openrouter:
     api-key: ${OPENROUTER_API_KEY:}
     base-url: ${OPENROUTER_BASE_URL:https://openrouter.ai/api/v1}

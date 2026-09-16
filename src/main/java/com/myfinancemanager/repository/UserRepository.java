@@ -12,5 +12,6 @@ public interface UserRepository extends JpaRepository<User, UUID> {
 
     boolean existsByEmailIgnoreCase(String email);
 
-    Optional<User> findByProviderSubject(String providerSubject);
+    /** Neon Auth's `sub` claim, i.e. the `neon_auth.user.id` this account signs in as. */
+    Optional<User> findByAuthSubject(String authSubject);
 }

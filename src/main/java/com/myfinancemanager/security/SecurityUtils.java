@@ -19,6 +19,18 @@ public final class SecurityUtils {
         return principal.getId();
     }
 
+    /**
+     * @return the authenticated user's id, or {@code null} when the request is anonymous.
+     *         For logging only - do not use it to guard protected work.
+     */
+    public static UUID currentUserIdOrNull() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null || !(authentication.getPrincipal() instanceof UserPrincipal principal)) {
+            return null;
+        }
+        return principal.getId();
+    }
+
     public static UserPrincipal currentPrincipal() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         if (authentication == null || !(authentication.getPrincipal() instanceof UserPrincipal principal)) {

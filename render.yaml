@@ -45,20 +45,11 @@ services:
       - key: DB_POOL_SIZE
         value: "10"
 
-      # Render generates a strong secret automatically.
-      - key: JWT_SECRET
-        generateValue: true
-      - key: JWT_ISSUER
-        value: my-finance-manager
-      - key: JWT_ACCESS_TTL
-        value: PT15M
-      - key: JWT_REFRESH_TTL
-        value: P30D
-
-      # Google Sign-In (optional). Value is the OAuth Web client ID used to
-      # verify Android ID tokens. Leave unset to disable the endpoint.
-      - key: GOOGLE_CLIENT_ID
-        sync: false
+      # Neon Auth (Managed Better Auth) base URL. Credentials live there, not here; this
+      # service verifies the JWTs Neon Auth issues. Not a secret, so it is set inline.
+      # The issuer/audience and JWKS URL are derived from it at startup.
+      - key: NEON_AUTH_URL
+        value: https://ep-delicate-mud-b3ht2w29.neonauth.c-4.ap-southeast-1.aws.neon.tech/neondb/auth
 
       # OpenRouter is used for AI insights and as the statement-parsing fallback.
       # OPENROUTER_MODEL is intentionally an env var so the model can be swapped

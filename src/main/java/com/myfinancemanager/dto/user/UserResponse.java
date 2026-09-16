@@ -1,6 +1,5 @@
 package com.myfinancemanager.dto.user;
 
-import com.myfinancemanager.domain.AuthProvider;
 import com.myfinancemanager.domain.User;
 
 import java.time.Instant;
@@ -11,7 +10,6 @@ public record UserResponse(
         UUID id,
         String email,
         String fullName,
-        AuthProvider authProvider,
         String currency,
         boolean emailVerified,
         boolean notificationsEnabled,
@@ -23,7 +21,6 @@ public record UserResponse(
                 user.getId(),
                 user.getEmail(),
                 user.getFullName(),
-                user.getAuthProvider(),
                 user.getCurrency(),
                 user.isEmailVerified(),
                 user.isNotificationsEnabled(),

@@ -19,7 +19,7 @@ See `My_Finance_Management_PRD.md` for the full product requirements.
 | Database | PostgreSQL (Render Postgres, Neon-compatible) |
 | Migrations | Flyway |
 | Persistence | Spring Data JPA / Hibernate |
-| Auth | Spring Security + JWT (access + rotating refresh tokens), Google Sign-In |
+| Auth | Neon Auth (Managed Better Auth) owns credentials; this service verifies its JWT (EdDSA, via JWKS) |
 | Statement parsing | Rapid Bank Statement Parsing API (RapidAPI) primary, OpenRouter AI fallback |
 | File extraction | Apache PDFBox, Apache POI, Commons CSV |
 | AI insights | OpenRouter (model configurable via `OPENROUTER_MODEL`) |
@@ -34,17 +34,17 @@ See `My_Finance_Management_PRD.md` for the full product requirements.
 src/main/java/com/myfinancemanager
 ├── common/          API error envelope, pagination, global exception handling
 ├── config/          Security, CORS, OpenAPI, async, typed properties, DATABASE_URL normalizer
-├── controller/      REST controllers (auth, users, income, expenses, investments, ...)
+├── controller/      REST controllers (users, income, expenses, investments, ...)
 ├── domain/          JPA entities and enums
 ├── dto/             Request/response records grouped by feature
 ├── integration/     External clients (RapidAPI, OpenRouter, Google, text extraction)
 ├── repository/      Spring Data repositories + projections
-├── security/        JWT service, auth filter, principal, token hashing
+├── security/        Neon Auth JWT decoder and filter, principal
 └── service/         Business logic
 src/main/resources
 ├── application.yml
 ├── application-prod.yml
-└── db/migration/V1__init.sql
+└── db/migration/    Flyway migrations (V1 init, V2 budgets, V3 Neon Auth)
 ```
 
 ---
@@ -81,7 +81,7 @@ Convenience shortcut for a local database:
 SPRING_DATASOURCE_URL=jdbc:postgresql://localhost:5432/myfinance \
 SPRING_DATASOURCE_USERNAME=myfinance \
 SPRING_DATASOURCE_PASSWORD=myfinance \
-JWT_SECRET=local-development-secret-key-at-least-32-bytes \
+NEON_AUTH_URL=https://<endpoint>.neonauth.<region>.aws.neon.tech/<database>/auth \
 ./mvnw spring-boot:run
 ```
 
@@ -117,10 +117,8 @@ See `.env.example` for the full list.
 | `SPRING_DATASOURCE_URL` / `_USERNAME` / `_PASSWORD` | yes* | Explicit JDBC credentials (used when `DATABASE_URL` is absent) |
 | `DATABASE_SSL_MODE` | no | Appends `sslmode` to the JDBC URL (e.g. `require` for Neon) |
 | `DB_POOL_SIZE` | no | Hikari maximum pool size (default `10`) |
-| `JWT_SECRET` | yes | HS256 signing key, at least 32 bytes |
-| `JWT_ISSUER` | no | Token issuer (default `my-finance-manager`) |
-| `JWT_ACCESS_TTL` / `JWT_REFRESH_TTL` | no | ISO-8601 durations (defaults `PT15M` / `P30D`) |
-| `GOOGLE_CLIENT_ID` | no | OAuth Web client ID for Google ID-token verification |
+| `NEON_AUTH_URL` | yes | Neon Auth base URL: `https://<endpoint>.neonauth.<region>.aws.neon.tech/<database>/auth`. The issuer, audience and JWKS URL are derived from it |
+| `NEON_AUTH_ISSUER` / `NEON_AUTH_JWKS_URI` | no | Override the derived values (only when the service is reached through a different hostname) |
 | `OPENROUTER_API_KEY` | no | Enables AI insights and the statement-parsing fallback |
 | `OPENROUTER_BASE_URL` | no | Defaults to `https://openrouter.ai/api/v1` |
 | `OPENROUTER_MODEL` | no | LLM model used by OpenRouter (default `openai/gpt-4o-mini`) |
@@ -138,27 +136,21 @@ normalized into Spring datasource properties at startup.
 
 ## 5. API overview
 
-Base path: `/api/v1`. All endpoints except `/auth/register`, `/auth/login`, `/auth/google`
-and `/auth/refresh` require `Authorization: Bearer <accessToken>`.
+Base path: `/api/v1`. Every endpoint except the health probes and the API docs requires
+`Authorization: Bearer <jwt>`, where the JWT is minted by Neon Auth.
 
-### Authentication - `/auth`
-| Method | Path | Description |
-|---|---|---|
-| POST | `/register` | Email/password sign-up, returns tokens |
-| POST | `/login` | Email/password login |
-| POST | `/google` | Login with a Google ID token |
-| POST | `/refresh` | Rotate a refresh token |
-| POST | `/logout` | Revoke a refresh token |
-| GET | `/me` | Current user |
+There is no sign-up, login or refresh endpoint here. The app authenticates against Neon Auth
+directly and presents the resulting JWT; the first authenticated request links that identity to
+a local profile row, matching on email so an account that predates the migration is adopted
+rather than duplicated. Every financial record hangs off that row.
 
 ### Account - `/users/me`
 | Method | Path | Description |
 |---|---|---|
 | GET | `/` | Profile and preferences |
 | PUT | `/` | Update profile / currency / notification prefs |
-| PUT | `/password` | Change password |
 | GET | `/export` | Full JSON data export |
-| DELETE | `/` | Delete account and all associated data |
+| DELETE | `/` | Delete the profile and all associated data |
 
 ### Income / Expenses / Investments
 Standard CRUD plus filtering:
@@ -235,28 +227,32 @@ normalised to upper case; `DELETE` on a category without a budget answers `204` 
 
 ## 6. Security notes
 
-- Passwords are hashed with BCrypt; refresh tokens are stored as SHA-256 hashes and rotated
-  on every use.
-- JWT access tokens are short-lived and stateless.
+- Credentials never reach this service. Neon Auth stores and verifies them; here a JWT is
+  verified against Neon Auth's published JWK set, restricted to EdDSA (which rules out
+  signature-confusion attacks), with issuer, audience and expiry all enforced.
+- Tokens are short-lived (15 minutes) and stateless, so there is nothing to revoke server-side.
 - Statement files are written under a per-user/per-batch directory and deleted after parsing.
-- Secrets (`JWT_SECRET`, `OPENROUTER_API_KEY`, `RAPIDAPI_KEY`, ...) are read only from the
-  environment and are never committed to the repository.
+- `NEON_AUTH_URL` is a public URL, not a secret. The remaining secrets
+  (`OPENROUTER_API_KEY`, `RAPIDAPI_KEY`, ...) are read only from the environment and are never
+  committed to the repository.
 - AI output is explicitly prompted to avoid regulated financial advice.
 
 ---
 
 ## 7. Deploying to Render
 
-The repository ships a Render Blueprint (`render.yaml`) that provisions a PostgreSQL
-database and the API as a Docker web service.
+The repository ships a Render Blueprint (`render.yaml`) that deploys the API as a Docker web
+service. The database is not provisioned by the blueprint: bring your own PostgreSQL (this
+deployment uses Neon) and paste its connection string in from the dashboard.
 
 1. Push this repository to GitHub/GitLab.
 2. In Render, choose **New > Blueprint** and select the repository.
 3. Render reads `render.yaml`, creates the database, and prompts for the `sync: false`
-   secrets: `GOOGLE_CLIENT_ID`, `OPENROUTER_API_KEY`, `RAPIDAPI_KEY`, `RAPIDAPI_HOST`,
-   `RAPIDAPI_URL`. Provide the ones you use and leave the rest blank.
-4. Apply. Render injects `DATABASE_URL` from the managed database and generates `JWT_SECRET`
-   automatically.
+   secrets: `DATABASE_URL`, `DATABASE_SSL_MODE`, `OPENROUTER_API_KEY`, `RAPIDAPI_KEY`,
+   `RAPIDAPI_HOST`, `RAPIDAPI_URL`. Provide the ones you use and leave the rest blank.
+4. Apply. The blueprint sets `NEON_AUTH_URL` inline; confirm it names the branch that holds the
+   `neon_auth` schema. A missing or wrong value fails fast at startup rather than at the first
+   sign-in.
 5. The service health check uses `/actuator/health`.
 
 The blueprint defaults to the `free` plan for both the database and the web service. Free web
@@ -270,7 +266,7 @@ docker build -t my-finance-manager-backend .
 
 docker run -p 8080:8080 \
   -e DATABASE_URL=postgresql://myfinance:myfinance@host.docker.internal:5432/myfinance \
-  -e JWT_SECRET=local-development-secret-key-at-least-32-bytes \
+  -e NEON_AUTH_URL=https://<endpoint>.neonauth.<region>.aws.neon.tech/<database>/auth \
   my-finance-manager-backend
 ```
 
@@ -279,6 +275,7 @@ docker run -p 8080:8080 \
 ## 8. Database migrations
 
 Flyway runs automatically on startup using `src/main/resources/db/migration`. The initial
-migration (`V1__init.sql`) creates all tables and indexes, and `V2__budgets.sql` adds category
-budgets. Add new migrations as
+migration (`V1__init.sql`) creates all tables and indexes, `V2__budgets.sql` adds category
+budgets, and `V3__neon_auth.sql` removes local credential storage (password hashes, refresh
+tokens) and adds `users.auth_subject`, the link to the Neon Auth user. Add new migrations as
 `V<n>__<description>.sql`; never edit an already-applied migration.

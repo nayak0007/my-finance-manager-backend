@@ -46,11 +46,13 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(UnauthorizedException.class)
     public ResponseEntity<ApiError> handleUnauthorized(UnauthorizedException ex, HttpServletRequest request) {
+        log.warn("Rejected {} {}: {}", request.getMethod(), request.getRequestURI(), ex.getMessage());
         return build(HttpStatus.UNAUTHORIZED, ex.getMessage(), request);
     }
 
     @ExceptionHandler(AuthenticationException.class)
     public ResponseEntity<ApiError> handleAuthentication(AuthenticationException ex, HttpServletRequest request) {
+        log.warn("Authentication failed for {} {}: {}", request.getMethod(), request.getRequestURI(), ex.getMessage());
         return build(HttpStatus.UNAUTHORIZED, "Authentication failed", request);
     }
 

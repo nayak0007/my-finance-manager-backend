@@ -1,13 +1,10 @@
 package com.myfinancemanager.service;
 
-import com.myfinancemanager.common.exception.BadRequestException;
 import com.myfinancemanager.common.exception.ResourceNotFoundException;
-import com.myfinancemanager.domain.AuthProvider;
 import com.myfinancemanager.domain.User;
 import com.myfinancemanager.dto.expense.ExpenseResponse;
 import com.myfinancemanager.dto.income.IncomeResponse;
 import com.myfinancemanager.dto.investment.InvestmentResponse;
-import com.myfinancemanager.dto.user.ChangePasswordRequest;
 import com.myfinancemanager.dto.user.UpdateProfileRequest;
 import com.myfinancemanager.dto.user.UserResponse;
 import com.myfinancemanager.repository.AIInsightRepository;
@@ -18,11 +15,9 @@ import com.myfinancemanager.repository.ExpenseRepository;
 import com.myfinancemanager.repository.ImportBatchRepository;
 import com.myfinancemanager.repository.IncomeRepository;
 import com.myfinancemanager.repository.InvestmentRepository;
-import com.myfinancemanager.repository.RefreshTokenRepository;
 import com.myfinancemanager.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.jpa.domain.Specification;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -37,8 +32,6 @@ import java.util.UUID;
 public class UserService {
 
     private final UserRepository userRepository;
-    private final PasswordEncoder passwordEncoder;
-    private final RefreshTokenRepository refreshTokenRepository;
     private final IncomeRepository incomeRepository;
     private final ExpenseRepository expenseRepository;
     private final InvestmentRepository investmentRepository;
@@ -77,20 +70,6 @@ public class UserService {
         return UserResponse.from(userRepository.save(user));
     }
 
-    @Transactional
-    public void changePassword(UUID userId, ChangePasswordRequest request) {
-        User user = getEntity(userId);
-        if (user.getAuthProvider() != AuthProvider.LOCAL || user.getPasswordHash() == null) {
-            throw new BadRequestException("Password change is not available for this account type");
-        }
-        if (!passwordEncoder.matches(request.currentPassword(), user.getPasswordHash())) {
-            throw new BadRequestException("Current password is incorrect");
-        }
-        user.setPasswordHash(passwordEncoder.encode(request.newPassword()));
-        userRepository.save(user);
-        refreshTokenRepository.deleteByUserId(userId);
-    }
-
     @Transactional(readOnly = true)
     public Map<String, Object> exportData(UUID userId) {
         User user = getEntity(userId);
@@ -109,15 +88,15 @@ public class UserService {
         return export;
     }
 
+    /**
+     * Removes the local profile and every record owned by it.
+     *
+     * <p>No password is required: credentials live in Neon Auth, ownership is already proven by
+     * the caller's token, and the app deletes the Neon Auth user itself.
+     */
     @Transactional
-    public void deleteAccount(UUID userId, String password) {
+    public void deleteAccount(UUID userId) {
         User user = getEntity(userId);
-        if (user.getAuthProvider() == AuthProvider.LOCAL && user.getPasswordHash() != null) {
-            if (password == null || !passwordEncoder.matches(password, user.getPasswordHash())) {
-                throw new BadRequestException("Password confirmation is required to delete this account");
-            }
-        }
-        refreshTokenRepository.deleteByUserId(userId);
         autoCaptureSettingsRepository.findByUserId(userId).ifPresent(autoCaptureSettingsRepository::delete);
         autoCaptureQueueRepository.deleteAll(autoCaptureQueueRepository.findByUserId(userId));
         aiInsightRepository.deleteAll(aiInsightRepository.findByUserId(userId));

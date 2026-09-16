@@ -1,7 +1,5 @@
 package com.myfinancemanager.controller;
 
-import com.myfinancemanager.dto.user.ChangePasswordRequest;
-import com.myfinancemanager.dto.user.DeleteAccountRequest;
 import com.myfinancemanager.dto.user.UpdateProfileRequest;
 import com.myfinancemanager.dto.user.UserResponse;
 import com.myfinancemanager.security.SecurityUtils;
@@ -40,24 +38,20 @@ public class UserController {
         return ResponseEntity.ok(userService.updateProfile(SecurityUtils.currentUserId(), request));
     }
 
-    @Operation(summary = "Change the current user's password")
-    @PutMapping("/password")
-    public ResponseEntity<Void> changePassword(@Valid @RequestBody ChangePasswordRequest request) {
-        userService.changePassword(SecurityUtils.currentUserId(), request);
-        return ResponseEntity.noContent().build();
-    }
-
     @Operation(summary = "Export all of the current user's data as JSON")
     @GetMapping("/export")
     public ResponseEntity<Map<String, Object>> export() {
         return ResponseEntity.ok(userService.exportData(SecurityUtils.currentUserId()));
     }
 
+    /**
+     * Deletes the local profile and every financial record owned by it. The Neon Auth identity
+     * is deleted separately by the app, which is the only party holding the password.
+     */
     @Operation(summary = "Delete the current user's account and all associated data")
     @DeleteMapping
-    public ResponseEntity<Void> delete(@RequestBody(required = false) DeleteAccountRequest request) {
-        userService.deleteAccount(SecurityUtils.currentUserId(),
-                request != null ? request.password() : null);
+    public ResponseEntity<Void> delete() {
+        userService.deleteAccount(SecurityUtils.currentUserId());
         return ResponseEntity.noContent().build();
     }
 }
