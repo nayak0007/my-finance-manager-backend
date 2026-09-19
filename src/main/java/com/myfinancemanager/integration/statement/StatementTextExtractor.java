@@ -26,9 +26,8 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * Extracts raw text from PDF, Excel and CSV bank/credit-card statements. This is used
- * as the input to the OpenRouter fallback parser when the primary RapidAPI parser is
- * unavailable or returns no transactions.
+ * Extracts raw text from PDF, Excel and CSV bank/credit-card statements. This is the input
+ * to the OpenRouter statement parser: the AI reads the text this class produces.
  */
 @Slf4j
 @Component

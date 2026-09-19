@@ -61,15 +61,6 @@ services:
       - key: OPENROUTER_MODEL
         value: openai/gpt-4o-mini
 
-      # Rapid Bank Statement Parsing API (RapidAPI) - primary statement parser.
-      # Leave unset to fall back directly to the OpenRouter extraction path.
-      - key: RAPIDAPI_KEY
-        sync: false
-      - key: RAPIDAPI_HOST
-        sync: false
-      - key: RAPIDAPI_URL
-        sync: false
-
       # Comma-separated list of allowed browser origins, or "*" to allow all.
       - key: CORS_ALLOWED_ORIGINS
         value: "*"

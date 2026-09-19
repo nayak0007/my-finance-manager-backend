@@ -20,7 +20,7 @@ See `My_Finance_Management_PRD.md` for the full product requirements.
 | Migrations | Flyway |
 | Persistence | Spring Data JPA / Hibernate |
 | Auth | Neon Auth (Managed Better Auth) owns credentials; this service verifies its JWT (EdDSA, via JWKS) |
-| Statement parsing | Rapid Bank Statement Parsing API (RapidAPI) primary, OpenRouter AI fallback |
+| Statement parsing | OpenRouter AI over locally extracted text (PDFBox / POI / CSV) |
 | File extraction | Apache PDFBox, Apache POI, Commons CSV |
 | AI insights | OpenRouter (model configurable via `OPENROUTER_MODEL`) |
 | Docs | springdoc-openapi (Swagger UI) |
@@ -37,7 +37,7 @@ src/main/java/com/myfinancemanager
 ├── controller/      REST controllers (users, income, expenses, investments, ...)
 ├── domain/          JPA entities and enums
 ├── dto/             Request/response records grouped by feature
-├── integration/     External clients (RapidAPI, OpenRouter, Google, text extraction)
+├── integration/     External clients (OpenRouter, Google, statement text extraction)
 ├── repository/      Spring Data repositories + projections
 ├── security/        Neon Auth JWT decoder and filter, principal
 └── service/         Business logic
@@ -119,11 +119,9 @@ See `.env.example` for the full list.
 | `DB_POOL_SIZE` | no | Hikari maximum pool size (default `10`) |
 | `NEON_AUTH_URL` | yes | Neon Auth base URL: `https://<endpoint>.neonauth.<region>.aws.neon.tech/<database>/auth`. The issuer, audience and JWKS URL are derived from it |
 | `NEON_AUTH_ISSUER` / `NEON_AUTH_JWKS_URI` | no | Override the derived values (only when the service is reached through a different hostname) |
-| `OPENROUTER_API_KEY` | no | Enables AI insights and the statement-parsing fallback |
+| `OPENROUTER_API_KEY` | yes for AI | Enables AI insights and statement parsing (the only statement parser) |
 | `OPENROUTER_BASE_URL` | no | Defaults to `https://openrouter.ai/api/v1` |
 | `OPENROUTER_MODEL` | no | LLM model used by OpenRouter (default `openai/gpt-4o-mini`) |
-| `RAPIDAPI_KEY` / `RAPIDAPI_HOST` / `RAPIDAPI_URL` | no | Primary statement parsing API |
-| `RAPIDAPI_FILE_FIELD_NAME` | no | Multipart field name expected by the API (default `file`) |
 | `STORAGE_LOCATION` | no | Directory for uploaded statements (default `./data/uploads`) |
 | `CORS_ALLOWED_ORIGINS` | no | Comma-separated origins, or `*` (default) |
 
@@ -183,12 +181,15 @@ Periods: `this_month`, `last_month`, `this_quarter`, `this_year`, `last_year`,
 | GET | `/{id}` | Batch status |
 | GET | `/{id}/detail` | Batch with staged transactions for review |
 | POST | `/{id}/commit` | Commit reviewed rows (with optional per-row overrides) |
+| POST | `/{id}/cancel` | Cancel an import that is still being parsed |
 | DELETE | `/{id}` | Delete a batch |
 
 Parsing runs asynchronously. The batch moves through `QUEUED` -> `PROCESSING` ->
-`READY_FOR_REVIEW` -> `COMMITTED` (or `FAILED`). Extraction attempts the RapidAPI parser
-first and falls back to PDFBox/POI/CSV text extraction plus an OpenRouter categorization
-call. Duplicate rows already present in the ledger are flagged before commit.
+`READY_FOR_REVIEW` -> `COMMITTED` (or `FAILED`, or `CANCELLED` when the user aborts), and only
+one import is reviewed at a time. Extraction is OpenRouter-only: the statement's text is pulled
+out locally with PDFBox/POI/CSV and sent to the model as a JSON-extraction prompt. Cancelling
+marks the batch `CANCELLED`, drops its staged rows and stored file, and discards whatever the
+in-flight parse produces. Duplicate rows already present in the ledger are flagged before commit.
 
 ### Auto-Capture - `/auto-capture`
 | Method | Path | Description |
@@ -233,8 +234,8 @@ normalised to upper case; `DELETE` on a category without a budget answers `204` 
 - Tokens are short-lived (15 minutes) and stateless, so there is nothing to revoke server-side.
 - Statement files are written under a per-user/per-batch directory and deleted after parsing.
 - `NEON_AUTH_URL` is a public URL, not a secret. The remaining secrets
-  (`OPENROUTER_API_KEY`, `RAPIDAPI_KEY`, ...) are read only from the environment and are never
-  committed to the repository.
+  (`OPENROUTER_API_KEY`, ...) are read only from the environment and are never committed to
+  the repository.
 - AI output is explicitly prompted to avoid regulated financial advice.
 
 ---
@@ -248,8 +249,8 @@ deployment uses Neon) and paste its connection string in from the dashboard.
 1. Push this repository to GitHub/GitLab.
 2. In Render, choose **New > Blueprint** and select the repository.
 3. Render reads `render.yaml`, creates the database, and prompts for the `sync: false`
-   secrets: `DATABASE_URL`, `DATABASE_SSL_MODE`, `OPENROUTER_API_KEY`, `RAPIDAPI_KEY`,
-   `RAPIDAPI_HOST`, `RAPIDAPI_URL`. Provide the ones you use and leave the rest blank.
+   secrets: `DATABASE_URL`, `DATABASE_SSL_MODE`, `OPENROUTER_API_KEY`. Provide the ones you use
+   and leave the rest blank.
 4. Apply. The blueprint sets `NEON_AUTH_URL` inline; confirm it names the branch that holds the
    `neon_auth` schema. A missing or wrong value fails fast at startup rather than at the first
    sign-in.

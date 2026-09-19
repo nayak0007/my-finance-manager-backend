@@ -10,6 +10,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientResponseException;
 
 import java.util.List;
 import java.util.Map;
@@ -80,10 +81,16 @@ public class OpenRouterClient {
                     .retrieve()
                     .body(String.class);
             return extractContent(response);
+        } catch (RestClientResponseException ex) {
+            log.warn("[OpenRouter] HTTP {} from {} with model {}: {}",
+                    ex.getStatusCode().value(), properties.baseUrl(), properties.model(),
+                    ex.getResponseBodyAsString());
+            throw new ExternalServiceException(
+                    "AI service returned HTTP " + ex.getStatusCode().value(), ex);
         } catch (ServiceUnavailableException ex) {
             throw ex;
         } catch (Exception ex) {
-            log.warn("OpenRouter request failed: {}", ex.getMessage());
+            log.warn("[OpenRouter] Request to {} failed: {}", properties.baseUrl(), ex.toString());
             throw new ExternalServiceException("AI service is temporarily unavailable", ex);
         }
     }

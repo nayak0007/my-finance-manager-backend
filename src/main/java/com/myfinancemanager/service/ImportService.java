@@ -143,6 +143,42 @@ public class ImportService {
         return ImportBatchResponse.from(importBatchRepository.save(batch));
     }
 
+    /**
+     * Aborts an import the user no longer wants. The batch is marked CANCELLED and stays in the
+     * history list, but its staged rows and the stored statement are dropped, and the async parse
+     * discards whatever it produces (see {@link ImportProcessingService}).
+     *
+     * <p>A batch that already wrote records cannot be cancelled — the records exist and the only
+     * way to undo them is to delete the records themselves.
+     */
+    @Transactional
+    public ImportBatchResponse cancel(UUID userId, UUID batchId) {
+        ImportBatch batch = load(userId, batchId);
+        if (batch.getStatus() == ImportStatus.COMMITTED || batch.getStatus() == ImportStatus.PARTIALLY_COMMITTED) {
+            throw new BadRequestException("An import that already wrote records cannot be cancelled");
+        }
+        if (batch.getStatus() == ImportStatus.CANCELLED) {
+            return ImportBatchResponse.from(batch);
+        }
+
+        // orphanRemoval on the batch's transactions deletes the staged rows with this save.
+        batch.getTransactions().clear();
+        batch.setTotalTransactions(0);
+        batch.setErrorMessage(null);
+        batch.setStatus(ImportStatus.CANCELLED);
+
+        Path stored = batch.getStoragePath() != null ? Path.of(batch.getStoragePath()) : null;
+        batch.setStoragePath(null);
+        ImportBatch saved = importBatchRepository.save(batch);
+
+        // The async parse may still be reading this file; deleting it turns its result into a
+        // failure, which the cancel state above deliberately ignores.
+        if (stored != null) {
+            fileStorageService.deleteQuietly(stored);
+        }
+        return ImportBatchResponse.from(saved);
+    }
+
     @Transactional
     public void delete(UUID userId, UUID batchId) {
         ImportBatch batch = load(userId, batchId);

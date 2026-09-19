@@ -68,6 +68,12 @@ public class ImportController {
         return ResponseEntity.ok(importService.commit(SecurityUtils.currentUserId(), id, request));
     }
 
+    @Operation(summary = "Cancel an import that is still being parsed")
+    @PostMapping("/{id}/cancel")
+    public ResponseEntity<ImportBatchResponse> cancel(@PathVariable UUID id) {
+        return ResponseEntity.ok(importService.cancel(SecurityUtils.currentUserId(), id));
+    }
+
     @Operation(summary = "Delete an import batch and its staged transactions")
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> delete(@PathVariable UUID id) {

@@ -6,24 +6,30 @@ import com.myfinancemanager.common.exception.BadRequestException;
 import com.myfinancemanager.common.exception.ExternalServiceException;
 import com.myfinancemanager.domain.ExtractionMethod;
 import com.myfinancemanager.integration.openrouter.OpenRouterClient;
-import com.myfinancemanager.integration.rapidapi.RapidApiClient;
-import com.myfinancemanager.integration.rapidapi.StatementResponseMapper;
 import com.myfinancemanager.integration.statement.ParsedTransaction;
+import com.myfinancemanager.integration.statement.StatementResponseMapper;
 import com.myfinancemanager.integration.statement.StatementTextExtractor;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Implements the two-stage statement parsing strategy described in the PRD:
+ * Turns an uploaded statement into transactions with OpenRouter as the only engine:
  * <ol>
- *   <li>Primary: Rapid Bank Statement Parsing API.</li>
- *   <li>Fallback: raw text extraction followed by OpenRouter AI categorization.</li>
+ *   <li>extract the statement's text on this host (PDFBox / Apache POI / CSV), then</li>
+ *   <li>ask the configured AI model for the rows as JSON.</li>
  * </ol>
+ *
+ * <p>There is no second parsing vendor. A failure here fails the batch, which is what the
+ * review screen reports; the user's escape hatch is cancelling the import.
+ *
+ * <p>Every stage is logged under the {@code [Import]} prefix with the batch file name, so a
+ * deployed instance's logs read as a timeline instead of a bare failure.
  */
 @Slf4j
 @Service
@@ -32,49 +38,43 @@ public class StatementParserService {
 
     private static final int MAX_PROMPT_TEXT_LENGTH = 12000;
 
-    private final RapidApiClient rapidApiClient;
     private final OpenRouterClient openRouterClient;
     private final StatementTextExtractor textExtractor;
     private final ObjectMapper objectMapper;
 
     public ParseResult parse(Path file, String originalFilename, String contentType) {
-        if (rapidApiClient.isConfigured()) {
-            try {
-                JsonNode root = rapidApiClient.parseStatement(file, originalFilename, contentType);
-                // The provider returns the rows as one text block ({"transactions": "..."});
-                // a structured array is the secondary interpretation for other shapes.
-                List<ParsedTransaction> transactions = StatementResponseMapper.mapTextResponse(root);
-                if (transactions.isEmpty() && root != null) {
-                    try {
-                        transactions = mapArray(StatementResponseMapper.findTransactionArray(root));
-                    } catch (IllegalArgumentException ignored) {
-                        // No transaction array in the response either; fall through to OpenRouter.
-                    }
-                }
-                if (!transactions.isEmpty()) {
-                    return new ParseResult(ExtractionMethod.RAPID_API, transactions);
-                }
-                log.info("RapidAPI returned no transactions for {}; falling back to OpenRouter", originalFilename);
-            } catch (ExternalServiceException ex) {
-                log.info("RapidAPI parsing failed for {}; falling back to OpenRouter: {}",
-                        originalFilename, ex.getMessage());
-            }
-        }
+        long start = System.currentTimeMillis();
+        long fileSize = fileSizeOf(file);
+        log.info("[Import] Parsing \"{}\" ({} bytes, content-type={})",
+                originalFilename, fileSize, contentType);
 
         if (!openRouterClient.isConfigured()) {
+            log.error("[Import] OpenRouter is not configured; \"{}\" cannot be parsed", originalFilename);
             throw new BadRequestException(
-                    "No statement parsing provider is available. Configure RapidAPI or OpenRouter.");
+                    "Statement parsing is unavailable. Configure OPENROUTER_API_KEY on the server.");
         }
 
+        // ---- Stage 1: raw text extraction -----------------------------------------------
+        long extractStart = System.currentTimeMillis();
         String rawText = textExtractor.extract(file, contentType, originalFilename);
         if (rawText == null || rawText.isBlank()) {
+            log.warn("[Import] Text extraction produced nothing for \"{}\" ({} ms)",
+                    originalFilename, System.currentTimeMillis() - extractStart);
             throw new BadRequestException("No readable content could be extracted from the statement");
         }
-        List<ParsedTransaction> transactions = parseWithOpenRouter(rawText);
+        log.info("[Import] Extracted {} characters of text from \"{}\" in {} ms",
+                rawText.length(), originalFilename, System.currentTimeMillis() - extractStart);
+
+        // ---- Stage 2: AI extraction ------------------------------------------------------
+        List<ParsedTransaction> transactions = parseWithOpenRouter(rawText, originalFilename);
         if (transactions.isEmpty()) {
+            log.warn("[Import] OpenRouter found no transactions in \"{}\" (total {} ms)",
+                    originalFilename, System.currentTimeMillis() - start);
             throw new BadRequestException("No transactions could be identified in the statement");
         }
-        return new ParseResult(ExtractionMethod.OPENROUTER_FALLBACK, transactions);
+        log.info("[Import] OpenRouter extracted {} transaction(s) for \"{}\"; parse finished in {} ms",
+                transactions.size(), originalFilename, System.currentTimeMillis() - start);
+        return new ParseResult(ExtractionMethod.OPENROUTER, transactions);
     }
 
     private List<ParsedTransaction> mapArray(JsonNode array) {
@@ -89,10 +89,14 @@ public class StatementParserService {
         return transactions;
     }
 
-    private List<ParsedTransaction> parseWithOpenRouter(String rawText) {
+    private List<ParsedTransaction> parseWithOpenRouter(String rawText, String originalFilename) {
         String truncated = rawText.length() > MAX_PROMPT_TEXT_LENGTH
                 ? rawText.substring(0, MAX_PROMPT_TEXT_LENGTH)
                 : rawText;
+        if (rawText.length() > MAX_PROMPT_TEXT_LENGTH) {
+            log.info("[Import] Statement text for \"{}\" truncated for the AI prompt: {} -> {} characters",
+                    originalFilename, rawText.length(), MAX_PROMPT_TEXT_LENGTH);
+        }
         String systemPrompt = """
                 You extract transactions from bank and credit card statements.
                 Respond ONLY with a JSON object of the form:
@@ -107,15 +111,34 @@ public class StatementParserService {
                 """;
         String userPrompt = "Extract all transactions from the following statement text:\n\n" + truncated;
 
-        String content = openRouterClient.completeJson(systemPrompt, userPrompt);
+        long aiStart = System.currentTimeMillis();
+        log.info("[Import] OpenRouter extraction starting for \"{}\" (model={})",
+                originalFilename, openRouterClient.model());
+        String content;
+        try {
+            content = openRouterClient.completeJson(systemPrompt, userPrompt);
+        } catch (ExternalServiceException ex) {
+            log.warn("[Import] OpenRouter call failed for \"{}\" after {} ms: {}",
+                    originalFilename, System.currentTimeMillis() - aiStart, ex.getMessage());
+            throw ex;
+        }
+        log.info("[Import] OpenRouter responded for \"{}\" in {} ms ({} characters)",
+                originalFilename, System.currentTimeMillis() - aiStart,
+                content == null ? -1 : content.length());
+
         String json = stripCodeFences(content);
         try {
             JsonNode root = objectMapper.readTree(json);
             JsonNode array = StatementResponseMapper.findTransactionArray(root);
-            return mapArray(array);
+            List<ParsedTransaction> parsed = mapArray(array);
+            log.info("[Import] OpenRouter response mapped to {} transaction(s) for \"{}\"",
+                    parsed.size(), originalFilename);
+            return parsed;
         } catch (BadRequestException ex) {
             throw ex;
         } catch (Exception ex) {
+            log.warn("[Import] OpenRouter response for \"{}\" could not be interpreted: {} | raw response: {}",
+                    originalFilename, ex.toString(), preview(json));
             throw new ExternalServiceException("Unable to parse AI statement extraction response", ex);
         }
     }
@@ -133,6 +156,22 @@ public class StatementParserService {
             }
         }
         return trimmed;
+    }
+
+    private static long fileSizeOf(Path file) {
+        try {
+            return file != null ? Files.size(file) : -1;
+        } catch (Exception ex) {
+            return -1;
+        }
+    }
+
+    private static String preview(String value) {
+        if (value == null || value.isBlank()) {
+            return "<empty>";
+        }
+        String flat = value.replaceAll("\\s+", " ").trim();
+        return flat.length() <= 300 ? flat : flat.substring(0, 300) + "…";
     }
 
     public record ParseResult(ExtractionMethod method, List<ParsedTransaction> transactions) {

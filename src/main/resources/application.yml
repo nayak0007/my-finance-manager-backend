@@ -46,12 +46,6 @@ app:
     base-url: ${OPENROUTER_BASE_URL:https://openrouter.ai/api/v1}
     model: ${OPENROUTER_MODEL:openai/gpt-4o-mini}
     timeout: ${OPENROUTER_TIMEOUT:PT60S}
-  rapidapi:
-    api-key: ${RAPIDAPI_KEY:}
-    host: ${RAPIDAPI_HOST:}
-    url: ${RAPIDAPI_URL:}
-    file-field-name: ${RAPIDAPI_FILE_FIELD_NAME:file}
-    timeout: ${RAPIDAPI_TIMEOUT:PT90S}
   storage:
     location: ${STORAGE_LOCATION:./data/uploads}
   cors:

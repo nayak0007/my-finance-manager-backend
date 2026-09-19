@@ -12,13 +12,16 @@ import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.nio.charset.StandardCharsets;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -244,6 +247,48 @@ class FinanceApiIntegrationTest {
                 .andExpect(status().isNoContent());
 
         assertThat(userRepository.findByAuthSubject(subject)).isEmpty();
+    }
+
+    @Test
+    void cancellingAnImportMarksItCancelledAndKeepsItOutOfReview() throws Exception {
+        String token = tokenForNewUser("import.cancel");
+
+        var created = mockMvc.perform(multipart("/api/v1/imports")
+                        .file(new MockMultipartFile("file", "statement.csv", "text/csv",
+                                "date,description,amount\n2026-09-01,Coffee,120.00\n"
+                                        .getBytes(StandardCharsets.UTF_8)))
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isAccepted())
+                .andReturn();
+        String batchId = objectMapper.readTree(created.getResponse().getContentAsString()).get("id").asText();
+
+        // The parse runs asynchronously and cannot succeed here (no OpenRouter key in the test
+        // profile), so the batch may already have failed — cancelling a failed batch is allowed
+        // and must win either way.
+        mockMvc.perform(post("/api/v1/imports/" + batchId + "/cancel")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("CANCELLED"));
+
+        // Idempotent: a second cancel reports the same state instead of failing.
+        mockMvc.perform(post("/api/v1/imports/" + batchId + "/cancel")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("CANCELLED"));
+
+        // The batch stays in the history, with nothing left to review.
+        mockMvc.perform(get("/api/v1/imports/" + batchId + "/detail")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.batch.status").value("CANCELLED"))
+                .andExpect(jsonPath("$.transactions").isEmpty());
+
+        // Committing a cancelled import is refused.
+        mockMvc.perform(post("/api/v1/imports/" + batchId + "/commit")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isBadRequest());
     }
 
     private void assertRejected(String token) throws Exception {
