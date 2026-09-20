@@ -10,6 +10,7 @@ import com.myfinancemanager.domain.StagedTransactionType;
 import com.myfinancemanager.integration.statement.ParsedTransaction;
 import com.myfinancemanager.repository.ExpenseRepository;
 import com.myfinancemanager.repository.ImportBatchRepository;
+import com.myfinancemanager.repository.ImportedTransactionRepository;
 import com.myfinancemanager.repository.IncomeRepository;
 import com.myfinancemanager.repository.InvestmentRepository;
 import com.myfinancemanager.service.util.TransactionFingerprint;
@@ -31,6 +32,7 @@ import java.util.UUID;
 public class ImportProcessingService {
 
     private final ImportBatchRepository importBatchRepository;
+    private final ImportedTransactionRepository importedTransactionRepository;
     private final IncomeRepository incomeRepository;
     private final ExpenseRepository expenseRepository;
     private final InvestmentRepository investmentRepository;
@@ -135,6 +137,10 @@ public class ImportProcessingService {
             }
 
             batch.getTransactions().add(staged);
+            // ImportedTransaction owns the batch_id FK, so it has to be persisted on its own.
+            // Relying on the batch's cascade through merge leaves the new rows transient at flush
+            // time, which is what raises TransientObjectException on every import.
+            importedTransactionRepository.save(staged);
         }
 
         batch.setExtractionMethod(result.method());

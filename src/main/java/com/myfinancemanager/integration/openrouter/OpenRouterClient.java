@@ -70,6 +70,14 @@ public class OpenRouterClient {
             body.put("response_format", Map.of("type", "json_object"));
         }
 
+        log.info("[OpenRouter] POST {}/chat/completions model={} response_format={} system_chars={} user_chars={}",
+                properties.baseUrl(), properties.model(), jsonMode ? "json_object" : "none",
+                systemPrompt.length(), userPrompt.length());
+        if (log.isDebugEnabled()) {
+            log.debug("[OpenRouter] Request body for model {}: {}", properties.model(), writeJson(body));
+        }
+
+        long requestStart = System.currentTimeMillis();
         try {
             String response = restClient.post()
                     .uri("/chat/completions")
@@ -80,33 +88,69 @@ public class OpenRouterClient {
                     .body(body)
                     .retrieve()
                     .body(String.class);
-            return extractContent(response);
+            Extracted extracted = extractContent(response);
+            log.info("[OpenRouter] 200 from {} model={} in {} ms: content_chars={} tokens={}",
+                    properties.baseUrl(), extracted.model(), System.currentTimeMillis() - requestStart,
+                    extracted.content().length(), extracted.usage());
+            if (log.isDebugEnabled()) {
+                log.debug("[OpenRouter] Raw response from model {}: {}", properties.model(), response);
+            }
+            return extracted.content();
         } catch (RestClientResponseException ex) {
-            log.warn("[OpenRouter] HTTP {} from {} with model {}: {}",
+            log.warn("[OpenRouter] HTTP {} from {} with model {} after {} ms: {}",
                     ex.getStatusCode().value(), properties.baseUrl(), properties.model(),
-                    ex.getResponseBodyAsString());
+                    System.currentTimeMillis() - requestStart, ex.getResponseBodyAsString());
             throw new ExternalServiceException(
                     "AI service returned HTTP " + ex.getStatusCode().value(), ex);
         } catch (ServiceUnavailableException ex) {
             throw ex;
         } catch (Exception ex) {
-            log.warn("[OpenRouter] Request to {} failed: {}", properties.baseUrl(), ex.toString());
+            log.warn("[OpenRouter] Request to {} failed after {} ms: {}",
+                    properties.baseUrl(), System.currentTimeMillis() - requestStart, ex.toString());
             throw new ExternalServiceException("AI service is temporarily unavailable", ex);
         }
     }
 
-    private String extractContent(String response) {
+    private Extracted extractContent(String response) {
         try {
             JsonNode root = objectMapper.readTree(response);
             JsonNode choices = root.path("choices");
             if (!choices.isArray() || choices.isEmpty()) {
                 throw new ExternalServiceException("AI service returned an unexpected response");
             }
-            return choices.get(0).path("message").path("content").asText("");
+            String content = choices.get(0).path("message").path("content").asText("");
+            return new Extracted(content, root.path("model").asText(properties.model()), describeUsage(root));
         } catch (ExternalServiceException ex) {
             throw ex;
         } catch (Exception ex) {
             throw new ExternalServiceException("Unable to parse AI service response", ex);
         }
+    }
+
+    /**
+     * The token counts the provider charges for, as {@code prompt/completion/total}. They are
+     * only carried in the response, so logging them here is the only way to see what an import
+     * actually cost.
+     */
+    private String describeUsage(JsonNode root) {
+        JsonNode usage = root.path("usage");
+        if (usage.isMissingNode() || usage.isNull()) {
+            return "n/a";
+        }
+        return String.format("prompt=%s completion=%s total=%s",
+                usage.path("prompt_tokens").asText("?"),
+                usage.path("completion_tokens").asText("?"),
+                usage.path("total_tokens").asText("?"));
+    }
+
+    private String writeJson(Object value) {
+        try {
+            return objectMapper.writeValueAsString(value);
+        } catch (Exception ex) {
+            return "<unserializable: " + ex + ">";
+        }
+    }
+
+    private record Extracted(String content, String model, String usage) {
     }
 }

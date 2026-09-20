@@ -65,3 +65,10 @@ management:
 springdoc:
   swagger-ui:
     path: /swagger-ui.html
+
+logging:
+  level:
+    # INFO already logs every OpenRouter request/response summary (model, endpoint, timings,
+    # token usage). DEBUG adds the full request body and the raw model response, which is what
+    # to reach for when an import's parsed output looks wrong.
+    com.myfinancemanager.integration.openrouter: ${OPENROUTER_LOG_LEVEL:INFO}
