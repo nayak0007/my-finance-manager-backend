@@ -26,6 +26,13 @@ public record NeonAuthProperties(
         String jwksUri
 ) {
     public NeonAuthProperties {
+        if (baseUrl == null || baseUrl.isBlank()) {
+            // Fail with the env var's name rather than letting URI.create report a bare
+            // "missing scheme or host", which gives no hint about what to set.
+            throw new IllegalStateException(
+                    "app.auth.neon.base-url is required. Set NEON_AUTH_URL to the Neon Auth base URL, "
+                            + "e.g. https://<endpoint>.neonauth.<region>.aws.neon.tech/<database>/auth");
+        }
         baseUrl = stripTrailingSlash(baseUrl);
         if (issuer == null || issuer.isBlank()) {
             issuer = originOf(baseUrl);
