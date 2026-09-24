@@ -157,9 +157,15 @@ if [ ! -f .env ]; then
     exit 1
 fi
 
-# Obtain initial SSL certificate
+# Build backend image locally for first deploy
+echo "=== Building backend image ==="
+docker compose build backend
+
+# Obtain initial SSL certificate using standalone mode (spins up temp web server on port 80)
 echo "=== Obtaining initial SSL certificate ==="
-docker compose run --rm certbot certonly --webroot -w /var/www/certbot -d aiccloud.in --email admin@aiccloud.in --agree-tos --no-eff-email
+# Stop any existing container on port 80
+docker compose down 2>/dev/null || true
+docker compose run --rm certbot certonly --standalone -d aiccloud.in --email admin@aiccloud.in --agree-tos --no-eff-email
 
 # Start services
 docker compose up -d
