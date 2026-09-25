@@ -153,7 +153,7 @@ if [ ! -f .env ]; then
     echo "OPENROUTER_API_KEY=..."
     echo "OPENROUTER_BASE_URL=https://openrouter.ai/api/v1"
     echo "OPENROUTER_MODEL=openai/gpt-4o-mini"
-    echo "CORS_ALLOWED_ORIGINS=https://aiccloud.in,..."
+    echo "CORS_ALLOWED_ORIGINS=http://<YOUR_VPS_IP>,..."
     exit 1
 fi
 
@@ -161,13 +161,8 @@ fi
 echo "=== Building backend image ==="
 docker compose build backend
 
-# Obtain initial SSL certificate using standalone mode (spins up temp web server on port 80)
-echo "=== Obtaining initial SSL certificate ==="
-# Stop any existing container on port 80
-docker compose down 2>/dev/null || true
-docker compose run --rm certbot certonly --standalone -d aiccloud.in --email admin@aiccloud.in --agree-tos --no-eff-email
-
-# Start services
+# Start services (HTTP only on port 80)
+echo "=== Starting services ==="
 docker compose up -d
 
 echo "=== Setup Complete ==="
